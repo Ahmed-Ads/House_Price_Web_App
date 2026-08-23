@@ -23,3 +23,13 @@ export async function predictPrice(
 
   return response.json();
 }
+
+export async function fetchLocations(): Promise<string[]> {
+  const response = await fetch(`${API_BASE_URL}/locations`);
+
+  if (!response.ok) {
+    throw new Error("Failed to load locations");
+  }
+
+  return response.json();
+}

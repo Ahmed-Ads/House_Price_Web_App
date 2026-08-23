@@ -1,6 +1,48 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import "./ResultPage.css";
 
+// Fixed approximate rate — not live. Update this occasionally; exchange
+// rates change daily and this app has no backend endpoint for live FX rates.
+const USD_PER_INR = 1 / 95.7;
+
+function formatIndianPrice(value: number): string {
+  const rounded = Math.round(value);
+  const str = String(rounded);
+  const lastThree = str.slice(-3);
+  const rest = str.slice(0, -3);
+
+  if (!rest) {
+    return lastThree;
+  }
+
+  const groupedRest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+  return `${groupedRest},${lastThree}`;
+}
+
+function toIndianWords(value: number): string {
+  let remaining = Math.round(value);
+
+  const crore = Math.floor(remaining / 1e7);
+  remaining %= 1e7;
+  const lakh = Math.floor(remaining / 1e5);
+  remaining %= 1e5;
+  const thousand = Math.floor(remaining / 1e3);
+  remaining %= 1e3;
+
+  const parts: string[] = [];
+  if (crore) parts.push(`${crore} Crore`);
+  if (lakh) parts.push(`${lakh} Lakh`);
+  if (thousand) parts.push(`${thousand} Thousand`);
+  if (remaining || parts.length === 0) parts.push(`${remaining}`);
+
+  return parts.join(" ");
+}
+
+function formatUsd(inrValue: number): string {
+  const rounded = Math.round(inrValue * USD_PER_INR);
+  return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
 function ResultPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -15,11 +57,18 @@ function ResultPage() {
         <p className="result-label">ESTIMATED PROPERTY PRICE</p>
 
         {predictedPrice !== undefined ? (
-          <h1 className="result-price">
-            ₹{Number(predictedPrice).toLocaleString("en-IN", {
-              maximumFractionDigits: 0,
-            })}
-          </h1>
+          <>
+            <h1 className="result-price">
+              ₹{formatIndianPrice(Number(predictedPrice))}
+            </h1>
+            <p className="result-breakdown">
+              {toIndianWords(Number(predictedPrice))}
+            </p>
+            <div className="result-usd">
+              ≈ ${formatUsd(Number(predictedPrice))} USD
+              <span className="result-usd-note"> (approx., 1 USD ≈ ₹95.7)</span>
+            </div>
+          </>
         ) : (
           <h1 className="result-price">No Result</h1>
         )}

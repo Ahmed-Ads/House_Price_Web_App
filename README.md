@@ -29,11 +29,12 @@ House_Price_Web_App/
 │   │   ├── core/config.py             # pydantic-settings config (reads .env)
 │   │   ├── schemas/prediction.py      # PredictionRequest / PredictionResponse
 │   │   ├── services/
-│   │   │   ├── preprocessing.py       # request dict -> one-row DataFrame
+│   │   │   ├── preprocessing.py       # request dict -> one-row DataFrame (model column names)
 │   │   │   └── inference.py           # loads the pickled pipeline, runs predict()
-│   │   └── utils/logging_config.py    # basic logging setup (not yet wired into main.py)
+│   │   └── utils/logging_config.py    # basic logging setup, wired into main.py
 │   ├── app_old.py                # legacy Flask prototype, kept for reference — not used by the app
 │   ├── models/
+│   │   ├── house_price.pkl       # trained pipeline — NOT committed, see "Get a trained model" below
 │   │   └── locations.json        # list of locations the model was trained on
 │   ├── tests/test_prediction.py  # 2 tests: /health, happy-path /predict
 │   ├── requirements.txt
@@ -41,15 +42,15 @@ House_Price_Web_App/
 │   └── Dockerfile
 └── frontend/
     └── src/
-        ├── api/predictionClient.ts   # POSTs to `${VITE_API_BASE_URL}/predict`
+        ├── api/predictionClient.ts   # predictPrice() and fetchLocations(), both use VITE_API_BASE_URL
         ├── components/PredictionForm.tsx
         ├── pages/{HomePage,ResultPage,NotFoundPage}.tsx
         ├── types/prediction.ts       # TS types mirroring the backend schema
         └── App.tsx                  # routes: / , /result , * (404)
 ```
 
-Note: `backend/models/house_price.pkl` is **not** committed (it's `.gitignore`d — see "Get a
-trained model" below). You have to generate it yourself by running the notebook.
+`backend/models/house_price.pkl` is `.gitignore`d — you generate it yourself by running the
+notebook (see below) and dropping it in that folder.
 
 ## Get the dataset
 
@@ -92,6 +93,12 @@ cp House_price.pkl ../backend/models/house_price.pkl
 `locations.json` is already committed in `backend/models/`, so you don't need to re-copy it unless
 you want to regenerate it from a newer training run.
 
+**Important — matching scikit-learn version:** the model was trained with `scikit-learn==1.6.1`.
+Loading a pickle saved by one scikit-learn version with a different (especially newer) version can
+fail outright (an internal class the pickle refers to may no longer exist). `backend/requirements.txt`
+pins `scikit-learn==1.6.1` for exactly this reason — don't remove that pin unless you retrain and
+re-export the model with the newer version too.
+
 ### Model performance (from the notebook's own run)
 
 | Model | MAE (₹) | RMSE (₹) | R² |
@@ -117,37 +124,54 @@ pytest   # 2 tests: /health, happy-path /predict
 
 Open `http://127.0.0.1:8000/docs` for interactive Swagger UI.
 
+If `house_price.pkl` isn't in `backend/models/` yet (or fails to load), the server still starts —
+`/health` will report `"model_loaded": false` and `/predict` will return a `503` with a clear
+message instead of crashing, until you drop the model file in.
+
 ### Backend environment variables (`backend/.env`)
 
 | Variable | Default | Description |
 |---|---|---|
-| `MODEL_PATH` | `models/house_price.pkl` | Path the pipeline is loaded from at import time — this is the one that actually matters |
-| `LOCATIONS_PATH` | `models/locations.json` | Declared in settings, but `GET /locations` currently resolves its own path independently rather than reading this value |
-| `API_TITLE` | `House Price Prediction API` | Declared in settings, but `main.py` currently hardcodes the FastAPI title instead of reading it |
-| `API_VERSION` | `1.0.0` | Same as above — declared but not currently read by `main.py` |
+| `MODEL_PATH` | `models/house_price.pkl` | Path the pipeline is loaded from |
+| `LOCATIONS_PATH` | `models/locations.json` | Path `GET /locations` reads from |
+| `API_TITLE` | `House Price Prediction API` | FastAPI app title (shown in `/docs`) |
+| `API_VERSION` | `1.0.0` | FastAPI app version |
+| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated list of origins allowed to call the API |
 
-CORS is currently hardcoded in `main.py` to allow `http://localhost:5173` (there's no `CORS_ORIGINS`
-env var).
+All five are actually read by the app via `app/core/config.py`'s `Settings` object.
+
+### Windows notes
+
+- If `npm`/PowerShell scripts are blocked with a `running scripts is disabled` error, either run
+  `npm install` from Command Prompt instead of PowerShell, or (as admin) run
+  `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`.
+- `python -m venv venv` picks up whatever `python` resolves to on your `PATH`. If you have multiple
+  Python installs (Anaconda, MSYS2, the Microsoft Store version, etc.), you may get a Unix-style
+  venv (a `bin/` folder instead of `Scripts/`) or a Python version too new for some pinned
+  dependencies to have prebuilt wheels for. Use `py -0` to list installed versions and
+  `py -3.12 -m venv venv` (or another specific version) to force a known-good one.
+- In VS Code, set the Python interpreter explicitly (`Ctrl+Shift+P` → `Python: Select Interpreter`)
+  to the one inside `backend/venv`, or import errors like `Import "fastapi" could not be resolved`
+  will show even though the packages are installed.
 
 ## 3. Run the frontend
 
 ```bash
 cd frontend
 npm install
+cp .env.example .env    # Windows: copy .env.example .env
 npm run dev      # http://127.0.0.1:5173
 npm run build    # production build, output in dist/
 ```
 
-There's no `frontend/.env.example` in the repo. `predictionClient.ts` reads
-`import.meta.env.VITE_API_BASE_URL` for the `/predict` call, so create `frontend/.env` yourself with:
+`frontend/.env.example` contains:
 
 ```
 VITE_API_BASE_URL=http://localhost:8000
 ```
 
-Note that `PredictionForm.tsx` currently fetches `/locations` from a hardcoded
-`http://127.0.0.1:8000/locations` rather than using `VITE_API_BASE_URL`, so it won't follow a
-different `VITE_API_BASE_URL` value.
+Both `predictPrice()` and `fetchLocations()` in `predictionClient.ts` read this variable, so
+pointing the frontend at a different backend only requires editing `.env` — no code changes.
 
 ## API reference
 
@@ -157,7 +181,7 @@ different `VITE_API_BASE_URL` value.
 curl http://localhost:8000/health
 ```
 ```json
-{ "status": "healthy" }
+{ "status": "healthy", "model_loaded": true }
 ```
 
 ### `GET /locations`
@@ -200,8 +224,8 @@ curl -X POST http://localhost:8000/predict \
 { "predicted_price": 5123456.0 }
 ```
 
-There's no `predicted_price_formatted` field — the response is just the raw number, and the
-frontend (`ResultPage.tsx`) formats it into `₹` on the client side.
+The response is just the raw predicted number in rupees. The frontend (`ResultPage.tsx`) formats
+it for display (see below) — the API itself does no formatting.
 
 ## Docker (backend)
 
@@ -211,29 +235,31 @@ docker build -t house-price-api .
 docker run -p 8000:8000 -v $(pwd)/models:/srv/models house-price-api
 ```
 
-## Known issues / things to check before relying on this
-
-- **`preprocessing.py`'s feature names don't match the request schema.** `FEATURES` in
-  `preprocessing.py` uses names like `"Carpet Area"`, `"Floor"`, `"Bathroom"`, `"Super Area"`, etc.,
-  but `PredictionRequest` (and the frontend) use `carpet_area`, `floor`, `bathroom`, `super_area`,
-  etc. Since `prepare_input()` does `data.get(feature)` against those mismatched keys, most fields
-  silently resolve to `None` before reaching the model — only `location`, `facing`, and
-  `overlooking` currently pass through correctly, regardless of what the user enters for area,
-  floor, bathrooms, etc.
-- **`GET /health` doesn't check the model.** It always returns `{"status": "healthy"}`; if the
-  model file is missing, the app fails at import time (`inference.py` loads it at module load),
-  not at request time.
-- **`app_old.py`** is a legacy Flask version of the API kept in the repo for reference — it isn't
-  used by the current FastAPI app and doesn't need to be run.
-
 ## Notes on design decisions
 
 - **Pipeline-based inference**: the notebook exports a single `sklearn.pipeline.Pipeline`
   containing both the `ColumnTransformer` (imputation, scaling, one-hot encoding) and the
   regressor, so the backend never re-implements preprocessing — it just calls `.predict()` on a
   one-row DataFrame.
+- **Field name mapping**: `PredictionRequest` uses snake_case field names (`carpet_area`, `total_floors`,
+  etc.) for a clean API, but the trained pipeline expects the exact column names/casing from the
+  training data (`"Carpet Area"`, `"Total Floors"`, etc.). `preprocessing.py`'s `FIELD_TO_MODEL_COLUMN`
+  dict bridges the two explicitly — this mapping has to stay in sync with the notebook's `num_cols`
+  / `cat_cols` if the notebook is ever changed.
 - **Log-transformed target**: prices are heavily right-skewed, so the model is trained on
   `log1p(price)` and predictions are inverted with `expm1()` before being returned.
 - **Dynamic locations list**: rather than hard-coding the dropdown options in the frontend,
   `locations.json` is exported directly from the training data's unique `location` values and
   served via `GET /locations`.
+- **Defensive model loading**: `inference.py` catches any failure while loading the pickle (missing
+  file, version mismatch, corruption) rather than letting it crash the whole app at startup. Check
+  `/health`'s `model_loaded` field or the server logs if predictions return a `503`.
+- **Manual number formatting on the frontend**: `ResultPage.tsx` formats the predicted price (Indian
+  digit grouping, e.g. `₹3,17,01,408`) and its approximate USD equivalent by hand instead of using
+  `toLocaleString()`. The browser's locale-based formatting can pick up the OS's regional number
+  settings (some Windows regional formats use `.` instead of `,` as the group separator), which
+  produced incorrect-looking output like `50.23.21.256` in testing. The manual formatters guarantee
+  a comma separator regardless of the user's system settings. The USD figure uses a fixed
+  approximate exchange rate (`USD_PER_INR` in `ResultPage.tsx`) rather than a live rate, since there's
+  no backend endpoint for currency conversion — it's labeled "approx." in the UI and should be
+  updated occasionally if kept long-term.
