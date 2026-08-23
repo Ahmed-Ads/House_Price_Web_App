@@ -65,6 +65,31 @@ This extracts `house_prices.csv` (~106 MB).
 
 ## 1. Get a trained model
 
+### Option A — download the pre-trained model (recommended, fast)
+
+A ready-to-use model is attached to the
+[`v1.0-model` release](https://github.com/Ahmed-Ads/House_Price_Web_App/releases/tag/v1.0-model).
+Download `House_price.pkl` from there, rename it to lowercase, and place it at:
+
+```bash
+backend/models/house_price.pkl
+```
+
+Or via the command line:
+
+```bash
+curl -L -o backend/models/house_price.pkl https://github.com/Ahmed-Ads/House_Price_Web_App/releases/download/v1.0-model/House_price.pkl
+```
+
+The filename must be exactly `house_price.pkl` (all lowercase) to match `MODEL_PATH` in
+`backend/.env.example` — this matters even if you're on Windows, since the app may later be
+deployed on a case-sensitive filesystem (Linux/macOS/most Docker images).
+
+This model was trained with `scikit-learn==1.6.1`, which `backend/requirements.txt` pins for
+exactly this reason — see the note below.
+
+### Option B — train it yourself from the notebook
+
 The notebook (`Notebooks/House_Price_Prediction.ipynb`) was originally run on Kaggle and reads
 the CSV from a Kaggle-specific path:
 
